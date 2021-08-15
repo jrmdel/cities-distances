@@ -1,0 +1,8 @@
+{
+    "name": "The name of the city (ex: Annecy)",
+    "coord": {
+        "lat": "Latitude (ex: 45.902047)",
+        "lon": "Longitude (ex: 6.121826)"
+    },
+    "zip_code": "The city's zipcode (ex: 74000)"
+}
