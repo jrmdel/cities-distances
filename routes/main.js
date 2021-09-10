@@ -48,14 +48,14 @@ router.post('/stations', async (req,res)=>{
     let data = JSON.parse(raw);
     // Filter to keep only the unique cities
     let stop_points = data.filter(item=>item.name!="" && item.administrative_regions).map(item=>{
-        return { "name":item?.name||"", "lat":item?.coord?.lat||"", "lon":item?.coord?.lon||"", "city":item?.administrative_regions[0]?.name||"" }
+        return { "name":item?.name||"", "lat":item?.coord?.lat||"", "lon":item?.coord?.lon||"", "city":item?.administrative_regions[0]?.name||"", "cityLat":item?.administrative_regions[0]?.coord?.lat||"" }
     })
     console.log(`Stop points : ${stop_points.length}`)
     console.log(stop_points[0])
     try {
         for (const stop_point of stop_points) {
             await session.run(
-                "MATCH (c:City) WHERE c.name=$city MERGE (s:Station { name: $name, lat: $lat, lon: $lon })-[r:Is_in]->(c)",
+                "MATCH (c:City) WHERE c.name=$city AND c.lat=$cityLat MERGE (s:Station { name: $name, lat: $lat, lon: $lon })-[r:Is_in]->(c)",
                 stop_point
             )
         }
@@ -93,6 +93,7 @@ router.post('/cities', async (req,res)=>{
     }
 })
 
+/*
 router.get('/journeys/:start/:end', async (req,res)=>{
     try {
         let pagination = await journeys.getPagination();
@@ -117,6 +118,7 @@ router.get('/journeys/:start/:end', async (req,res)=>{
         res.json({"error":error})
     }
 })
+*/
 
 router.post('/journeys', async (req,res)=>{
     try {
@@ -147,9 +149,14 @@ router.post('/journeys', async (req,res)=>{
     }
 })
 
-router.get('/lines', async (req,res)=>{
+/**
+ * Get the data related to the lines' ID found in data/lines-id-YYYYMMDD.json
+ * Parse it and store it under data/lines-XXX.json where XXX is the number of lines
+ */
+router.get('/journeys/from/:YYYYMMDD', async (req,res)=>{
     try {
-        let ids = JSON.parse(fs.readFileSync('./data/lines-all.json'));
+        if(!req.params.YYYYMMDD.match(/^[0-9]{8}$/g)) throw Error("Query should contain a date with format YYYYMMDD eg. 20210822")
+        let ids = JSON.parse(fs.readFileSync(`./data/lines-id-${req.params.YYYYMMDD}.json`));
         let result = [];
         for (let i = 0; i < ids.length; i++) {
             try {
@@ -157,10 +164,20 @@ router.get('/lines', async (req,res)=>{
                 let vj = data.data.vehicle_journeys;
                 let patterns = new Set(vj.filter(item=>!item?.id?.includes(':modified')).map(item=>item?.journey_pattern?.id || null))
                 let relevent = Array.from(patterns).filter(i=>i!=null).map(jp=>{
-                    let { journey_pattern, stop_times, ...rest} = vj.find(o=>o.journey_pattern.id==jp)
-                    return { "journey_pattern":journey_pattern.id, "stop_times":stop_times.map(item=>{
-                        return { "name":item?.stop_point?.name||"", "arrival_time":item?.arrival_time||"", "departure_time":item?.departure_time }
-                    }) }
+                    let { trip, journey_pattern, stop_times, ...rest} = vj.find(o=>o.journey_pattern.id==jp)
+                    return {
+                        "trip": trip?.id,
+                        "journey_pattern":journey_pattern?.id,
+                        "stop_times":stop_times.map(item=>{
+                            return {
+                                "name":item?.stop_point?.name||"",
+                                "lat": item?.stop_point?.coord?.lat||"",
+                                "lon": item?.stop_point?.coord?.lon||"",
+                                "arrival_time":item?.arrival_time||"",
+                                "departure_time":item?.departure_time
+                            }
+                        })
+                    }
                 })
                 console.log(`${i}/${ids.length} : Adding ${relevent.length} journeys`);
                 result = result.concat(relevent);
@@ -168,30 +185,34 @@ router.get('/lines', async (req,res)=>{
                 console.error(`ID ${ids[i]} at index ${i} failed`)
             }
         }
-        res.json({"msg": `Vehicle journeys = ${result.length}`, "lines":(result.length>200) ? "Too large" : result})
+        res.json({"msg": `Vehicle journeys = ${result.length}`})
         fs.writeFileSync(`./data/lines-${ids.length}.json`, JSON.stringify(result,null,2));
     } catch (error) {
         console.error("Oups : "+error)
-        res.json(error)
+        res.status(404).json({"error":error?.message||"An error occured"});
     }
 })
 
+/**
+ * Create a json file containing all the lines ID currently available
+ * The file is created in the folder data under the name 'lines-id-YYYYMMDD.json' where YYYYMMDD is the date when the data has been retrieved
+ */
 router.get('/lines/all', async (req,res)=>{
     try {
+        let filename = `lines-id-${(new Date()).toISOString().split('T')[0].replace("-","").replace("-","")}.json`;
         let data = await lines.getDataFrom(0,1000);
         let arr = [].concat(data?.data?.lines.map(line=>line.id) || []);
         let end = Math.ceil(data.data.pagination.total_result/1000)-1;
-        for (let i = 1; i < end; i++) {
+        for (let i = 1; i <= end; i++) {
             data = await lines.getDataFrom(i,1000);
             arr = arr.concat(data?.data?.lines.map(line=>line.id) || []);
         }
         console.log(`Number of lines : ${arr.length}`);
-
-        res.json({"msg": `File lines-all.json created with size = ${arr.length}` })
-        fs.writeFileSync(`./data/lines-all.json`, JSON.stringify(arr,null,2));
+        res.json({"msg": `File ${filename} created with size = ${arr.length}` })
+        fs.writeFileSync(`./data/${filename}`, JSON.stringify(arr,null,2));
     } catch (error) {
         console.error("Oups : "+error)
-        res.json(error)
+        res.json({"error": error?.message || "An error occured"});
     }
 })
 

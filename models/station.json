@@ -1,7 +1,5 @@
 {
     "name": "Name of the station (ex: Annecy)",
-    "coord": {
-        "lat": "Latitude (ex: 45.902047)",
-        "lon": "Longitude (ex: 6.121826)"
-    }
+    "lat": "Latitude (ex: 45.902047)",
+    "lon": "Longitude (ex: 6.121826)"
 }
